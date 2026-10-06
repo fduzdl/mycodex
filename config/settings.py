@@ -1,7 +1,28 @@
+import logging
 from pathlib import Path
 import sys
 
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger("mycodex.settings")
+
+
+def cross_platform_path(path_text: str) -> bool:
+    """检测其他平台残留路径：win 盘符/UNC 出现在 mac/linux，或 posix 绝对路径出现在 win。
+
+    （2026-10-03 事故：mac 的 .env 里 DEFAULT_WORKSPACE=D:\\projects\\demo——
+    照抄了文档示例值——被 Path() 当相对路径，在 cwd 下静默建出该名字的目录。）
+    """
+    s = path_text.strip()
+    if not s:
+        return False
+    if sys.platform != "win32":
+        if (len(s) >= 2 and s[1] == ":") or s.startswith("\\\\") or s.startswith("//"):
+            return True
+    else:
+        if s.startswith("/"):
+            return True
+    return False
 
 
 class Settings(BaseSettings):
@@ -174,6 +195,9 @@ class Settings(BaseSettings):
     def get_default_workspace(self) -> str:
         """返回已配置的工作空间路径，若未设置或不存在则默认回退到 workspace 独立沙盒目录。"""
         configured = self.default_workspace.strip()
+        if configured and cross_platform_path(configured):
+            logger.warning("DEFAULT_WORKSPACE（%s）是其他平台的路径，已回退到 workspace 沙盒目录", configured)
+            configured = ""
         if configured:
             path = Path(configured).expanduser()
             try:

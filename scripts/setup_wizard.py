@@ -131,24 +131,6 @@ def upsert_env_key(key: str, value: str):
         print(f"[!] 写入 .env 失败: {e}")
 
 
-def cross_platform_path(path_text: str) -> bool:
-    """检测其他平台残留路径：win 盘符/UNC 出现在 mac/linux，或 posix 绝对路径出现在 win。
-
-    （2026-10-03 事故：mac 的 .env 里 DEFAULT_WORKSPACE=D:\\projects\\demo——
-    照抄了 doc/setup.md 的示例值——向导原样推荐并在 mac 上建出该名字的目录。）
-    """
-    s = path_text.strip()
-    if not s:
-        return False
-    if sys.platform != "win32":
-        if (len(s) >= 2 and s[1] == ":") or s.startswith("\\\\") or s.startswith("//"):
-            return True
-    else:
-        if s.startswith("/"):
-            return True
-    return False
-
-
 def get_recommended_workspace() -> Path:
     """获取默认初始运行目录：默认为项目根目录下的 workspace 独立沙盒目录。"""
     ws = ROOT_DIR / "workspace"
@@ -179,6 +161,8 @@ def infer_codex_session_dir() -> Path:
 
 def confirm_directories():
     """【Step 2/4】初始运行目录与 Codex 历史会话目录确认。"""
+    from config.settings import cross_platform_path
+
     print("\n" + "=" * 60)
     print("   【Step 2/4】初始运行目录与 Codex 历史会话目录确认")
     print("=" * 60)

@@ -183,14 +183,19 @@ def handle_mode_switch(target: UserTarget, mode: str) -> str:
     if mode not in ("h", "m", "l"):
         mode = "m"
     preferences = preferences_manager.get(target.user_id)
+    old_mode = preferences.mode
     preferences.mode = mode
     preferences_manager.save(target.user_id, preferences)
 
     mode_labels = {"h": "严格模式 (h)", "m": "平衡模式 (m)", "l": "全自动模式 (l)"}
     lbl = mode_labels.get(mode, mode)
-    asyncio.get_running_loop().create_task(
-        _check_and_run_pending(target, prev_ack=f"✅ 已选择执行模式：`{lbl}`")
-    )
+
+    async def _apply() -> None:
+        if old_mode and old_mode != mode:
+            await codex_cli_loop.cancel_and_wait(skey_for(target))
+        await _check_and_run_pending(target, prev_ack=f"✅ 已选择执行模式：`{lbl}`")
+
+    asyncio.get_running_loop().create_task(_apply())
     return f"已设置执行模式: {lbl}"
 
 

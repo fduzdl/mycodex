@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import sys
 import uuid
 from pathlib import Path
 
@@ -401,7 +402,16 @@ async def handle_message(target: UserTarget, message_id: str, text: str) -> None
         new_path = parts[1].strip()
         p = Path(new_path)
         if not p.is_absolute():
-            await reply.text("错误：请使用绝对路径，例如 `/cd D:\\projects\\myapp`")
+            # 2026-10-06：示例文案曾是 Windows 风格，把 mac 用户带偏（漏开头 / 还照抄了反斜杠）。
+            # 现按平台给示例，并对"疑似漏掉开头 /"的 mac 输入给出针对性提示。
+            if sys.platform != "win32" and not new_path.startswith("/"):
+                await reply.text(
+                    f"❌ `{new_path}` 是相对路径。macOS/Linux 绝对路径以 `/` 开头，"
+                    f"你是不是想切换到 `/{new_path}`？确认请发送 `/cd /{new_path}`"
+                )
+                return
+            example = "/cd /Users/mac/projects/myapp" if sys.platform != "win32" else "/cd D:\\projects\\myapp"
+            await reply.text(f"错误：请使用绝对路径，例如 `{example}`")
             return
 
         if not p.exists():
@@ -537,9 +547,17 @@ async def handle_message(target: UserTarget, message_id: str, text: str) -> None
         return
 
     # --- /new: reset native thread and runtime preferences ---
-    if text_lower == "/new":
+    if text_lower == "/new" or text_lower.startswith("/new ") or text_lower.startswith("/new\n"):
+        new_task = "" if text_lower == "/new" else text[len("/new"):].strip()
         await codex_cli_loop.cancel_and_wait(skey)
         session = session_manager.reset_user_session(skey)
+
+        # /new <任务描述>：重置后直接把剩余文字作为新会话首条任务执行
+        if new_task:
+            preview = new_task if len(new_task) <= 60 else new_task[:57] + "..."
+            await reply.text(f"✨ **新会话已就绪**，开始执行：`{preview}`")
+            await _run_codex(new_task, target, session)
+            return
 
         pref = preferences_manager.get(open_id)
         models = discover_models()
@@ -754,6 +772,15 @@ async def handle_message(target: UserTarget, message_id: str, text: str) -> None
     await _run_codex(text, target)
 
 
+# 命令层已实现的指令名（供无效斜杠输入的提示区分“用法错误”与“未识别”）。
+# 与上方各 `text_lower ==` / `startswith` 分支保持同步。
+_KNOWN_COMMANDS = frozenset({
+    "/help", "/status", "/stop", "/new", "/clean", "/compact", "/continue",
+    "/notes", "/model", "/mode", "/effort", "/pwd", "/file",
+    "/cd", "/session", "/resume", "/mem", "/sh",
+})
+
+
 async def _run_codex(
     prompt: str,
     target: UserTarget,
@@ -772,6 +799,27 @@ async def _run_codex(
     chat_id = target.chat_id if target.is_group else ""
     audit_logger.log_command_received(open_id, prompt, "started")
     reply = ReplyContext(target)
+
+    # 拦截“以 / 开头但未被命令层处理”的输入：原样转发可能被 CLI 当斜杠命令吞掉，
+    # 0 次模型调用静默返回 "(no content)"（2026-10-06 myclaw 实测，两项目行为对齐）。
+    # 内部合成调用（skip_classify=True）不受此拦截影响。
+    if not skip_classify:
+        stripped_prompt = prompt.lstrip()
+        if stripped_prompt.startswith("/"):
+            parts = stripped_prompt.split()
+            head = parts[0] if parts else "/"
+            if head.lower() in _KNOWN_COMMANDS:
+                await reply.text(
+                    f"⚠️ 指令 `{head}` 不支持这种用法（多余的参数不会被识别）。\n"
+                    f"发送 `/help` 查看该指令的正确用法。"
+                )
+            else:
+                await reply.text(
+                    f"⚠️ 未识别的指令 `{head}`，已拦截未执行（原样转发只会得到空结果）。\n"
+                    f"• 发送 `/help` 查看全部可用指令\n"
+                    f"• 如需发送以 / 开头的普通内容（如路径），请在消息最前面加一个空格"
+                )
+            return
     try:
         if not session:
             session = session_manager.get_user_session(skey)

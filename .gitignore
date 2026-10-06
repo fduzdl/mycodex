@@ -46,9 +46,9 @@ logs/
 .DS_Store
 Thumbs.db
 
-# User personal notes (report.md is customer-facing — keep trackable)
-doc/*
-!doc/report.md
+# User personal notes (local only — 2026-10-03: legacy Sep-era docs untracked;
+# outdated content misled setups, e.g. the D:\projects\demo example incident)
+doc/
 
 # Feishu setup runtime artifacts and credentials
 auto_feishu/feishu-app-result.json

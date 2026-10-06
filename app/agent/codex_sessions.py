@@ -239,6 +239,9 @@ def detect_cli_thread_update(workspace: str, current_thread_id: str | None) -> d
         return res
 
     threads = list_workspace_threads(workspace)
+    # 对齐目标必须有实质对话内容（至少一轮问答）：桌面端建而未用的空 rollout
+    # mtime 最新，会赢过真实会话把用户绑到空线程上（与 myclaw born 会话防御同口径）。
+    threads = [t for t in threads if t.get("message_count", 0) >= 2]
     if not threads:
         return res
 
